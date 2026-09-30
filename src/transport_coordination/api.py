@@ -8,6 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .carbon_api import route_carbon
+from .carbon_service import CarbonService
 from .errors import DomainError, ValidationError
 from .service import DomainService
 from .storage import Database
@@ -22,6 +24,9 @@ def route(service: DomainService, method: str, path: str, body: dict[str, Any] |
     parsed = urlparse(path)
     actor_id = headers.get("X-Actor-Id", "")
     try:
+        carbon_result = route_carbon(service, method, path, {**body, "actor_id": actor_id})
+        if carbon_result is not None:
+            return carbon_result
         if method == "GET" and parsed.path == "/health":
             valid, count = service.verify_audit()
             return 200, {"status": "ok", "audit_valid": valid, "audit_events": count}
@@ -58,7 +63,7 @@ def route(service: DomainService, method: str, path: str, body: dict[str, Any] |
 class Handler(BaseHTTPRequestHandler):
     """把标准库 HTTP 请求转换为路由调用。"""
 
-    service: DomainService
+    service: CarbonService
 
     def _handle(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
@@ -99,7 +104,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
     database = Database(args.database)
-    Handler.service = DomainService(database)
+    Handler.service = CarbonService(database)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     try:
         server.serve_forever()
